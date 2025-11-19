@@ -39,6 +39,8 @@ PADDLE_TARGET_HZ        = 42.0        # desired paddle rate (Hz) when regen acti
 BRAKE_PITCH_FACTOR_BP = [5., 10.]  # [m/s] smoothly revert to planned accel at low speeds
 BRAKE_PITCH_FACTOR_V = [0., 1.]  # [unitless in [0,1]]; don't touch
 PITCH_DEADZONE = 0.01  # [radians] 0.01 ≈ 1% grade
+# CC-Only vehicle friction brake activation threshold
+CC_FRICTION_BRAKE_THRESHOLD = -1.5  # [m/s²] deceleration threshold for friction brake activation
 
 class CarController(CarControllerBase):
   def __init__(self, dbc_name, CP, VM):
@@ -84,7 +86,6 @@ class CarController(CarControllerBase):
     self.regen_paddle_pressed = False
     self.aego = 0.0
     self.regen_paddle_timer = 0
-    self.friction_timer = 0  # frames
     self.planner_regen_hold = False
 
 
@@ -361,8 +362,7 @@ class CarController(CarControllerBase):
         at_full_stop = CC.longActive and CS.out.standstill
         near_stop = CC.longActive and (CS.out.vEgo < self.params.NEAR_STOP_BRAKE_PHASE)
         interceptor_gas_cmd = 0
-        use_friction_brakes = False   # Always initialize for scope
-        
+
         if not CC.longActive:
           # ASCM sends max regen when not enabled
           self.apply_gas = self.params.INACTIVE_REGEN
@@ -378,42 +378,42 @@ class CarController(CarControllerBase):
 
           gas_max = self.params.MAX_GAS
           accel_max = self.params.ACCEL_MAX
-          
+
           accel = clip(actuators.accel + accel_due_to_pitch, self.params.ACCEL_MIN, accel_max)
           torque = self.tireRadius * ((self.mass*accel) + (0.5*self.coeffDrag*self.frontalArea*self.airDensity*CS.out.vEgo**2))
-          
+
           scaled_torque = torque + self.params.ZERO_GAS
           apply_gas_torque = clip(scaled_torque, self.params.MAX_ACC_REGEN, gas_max)
           BRAKE_SWITCH = int(round(interp(CS.out.vEgo, self.params.BRAKE_SWITCH_LOOKUP_BP, self.params.BRAKE_SWITCH_LOOKUP_V)))
           brake_accel = min((scaled_torque - BRAKE_SWITCH)/(self.tireRadius*self.mass), 0)
-          self.apply_gas = int(round(apply_gas_torque))
-          self.apply_brake = int(round(interp(brake_accel, self.params.BRAKE_LOOKUP_BP, self.params.BRAKE_LOOKUP_V)))
-          
-          # Determine if we need friction brakes for CC cars
-          if self.CP.carFingerprint in CC_ONLY_CAR and self.apply_brake > 0:
-            # Friction brake hysteresis (frame‑based): count frames when braking hard, decrement only when truly released
-            if accel < -1.5:  # Activation: commanded decel exceeds regen+paddle envelope (~-1.4 m/s²)
-              self.friction_timer = min(self.friction_timer + 1, 3)
-            elif accel > -1.4:  # Deactivation: commanded decel back within regen+paddle capability
-              self.friction_timer = max(self.friction_timer - 1, 0)
-            # else: hold timer between -1.5 and -1.4
 
-            # Base friction brake activation hysteresis
-            use_friction_brakes = self.friction_timer >= 3  # 3 frames
-            if use_friction_brakes:
+          # Calculate brake value once
+          brake_value = int(round(interp(brake_accel, self.params.BRAKE_LOOKUP_BP, self.params.BRAKE_LOOKUP_V)))
+
+          # Determine control mode for CC cars based on acceleration
+          if self.CP.carFingerprint in CC_ONLY_CAR:
+            # Use friction brakes for deceleration > threshold
+            if accel < CC_FRICTION_BRAKE_THRESHOLD:
+              # Friction brake mode
               self.apply_gas = self.params.INACTIVE_REGEN
-          
-          if self.apply_brake > 0 and not use_friction_brakes:
-            self.apply_gas = self.params.INACTIVE_REGEN
+              self.apply_brake = brake_value
+              interceptor_gas_cmd = 0
+            else:
+              # Pedal interceptor mode
+              self.apply_brake = 0
+              interceptor_gas_cmd, press_regen_paddle = self.calc_pedal_command(accel, CC.longActive, CS.out.vEgo)
+              self.apply_gas = int(round(apply_gas_torque))
+          else:
+            # Non-CC cars: standard logic
+            self.apply_gas = int(round(apply_gas_torque))
+            self.apply_brake = brake_value
+            if self.apply_brake > 0:
+              self.apply_gas = self.params.INACTIVE_REGEN
 
           # Don't allow any gas above inactive regen while stopping
           # FIXME: brakes aren't applied immediately when enabling at a stop
           if stopping:
             self.apply_gas = self.params.INACTIVE_REGEN
-          if self.CP.carFingerprint in CC_ONLY_CAR:
-            # gas interceptor only used for full long control on cars without ACC
-            if not use_friction_brakes:  # Only use pedal interceptor for regen if not using friction brakes
-                interceptor_gas_cmd, press_regen_paddle = self.calc_pedal_command(actuators.accel, CC.longActive, CS.out.vEgo)
 
         if self.CP.enableGasInterceptor and self.apply_gas > self.params.INACTIVE_REGEN and CS.out.cruiseState.standstill:
           # "Tap" the accelerator pedal to re-engage ACC
@@ -432,10 +432,11 @@ class CarController(CarControllerBase):
 
         if self.CP.enableGasInterceptor:
           can_sends.append(create_gas_interceptor_command(self.packer_pt, interceptor_gas_cmd, idx))
-        
+
         # Handle friction brake commands for EUV and CC cars when needed
-        # Prevent gas/brake conflicts: don't send friction brakes when pedal interceptor or user gas is active
-        friction_brake_allowed = (self.CP.carFingerprint not in CC_ONLY_CAR) or (use_friction_brakes and interceptor_gas_cmd == 0 and not CS.out.gasPressed)
+        # For CC-Only cars, only send friction brakes when in friction brake mode
+        # For other cars, always allow friction brakes
+        friction_brake_allowed = (self.CP.carFingerprint not in CC_ONLY_CAR) or (self.CP.carFingerprint in CC_ONLY_CAR and accel < CC_FRICTION_BRAKE_THRESHOLD)
         if friction_brake_allowed:
           friction_brake_bus = CanBus.CHASSIS
           # GM Camera exceptions
