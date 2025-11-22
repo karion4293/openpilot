@@ -41,6 +41,11 @@ BRAKE_PITCH_FACTOR_BP = [5., 10.]  # [m/s] smoothly revert to planned accel at l
 BRAKE_PITCH_FACTOR_V = [0., 1.]  # [unitless in [0,1]]; don't touch
 PITCH_DEADZONE = 0.01  # [radians] 0.01 ≈ 1% grade
 
+# Hybrid brake mode: Allow CC cars with EUV hardware to use friction brakes for faster braking
+# Threshold at which to engage friction brakes (in m/s²)
+# -1.5 m/s² allows pedal interceptor for gentle braking, friction for harder stops
+HYBRID_BRAKE_ACCEL_THRESHOLD = -1.5  # m/s²
+
 class CarController(CarControllerBase):
   def __init__(self, dbc_name, CP, VM):
     self.CP = CP
@@ -412,8 +417,21 @@ class CarController(CarControllerBase):
             can_sends.extend(gmcan.create_gm_cc_spam_command(self.packer_pt, self, CS, actuators, frogpilot_toggles))
           elif CC.enabled and self.frame % 52 == 0 and CS.cruise_buttons == CruiseButtons.UNPRESS and CS.out.gasPressed and CS.out.cruiseState.speed < CS.out.vEgo < hud_v_cruise:
             can_sends.append(gmcan.create_buttons(self.packer_pt, CanBus.POWERTRAIN, (CS.buttons_counter + 1) % 4, CruiseButtons.DECEL_SET))
-        if self.CP.enableGasInterceptor:
+        # Hybrid brake mode: Mutually exclusive pedal interceptor OR friction brake
+        # Automatically active when BOLT_CC fingerprint detected with pedal interceptor
+        use_hybrid_brake = (self.CP.carFingerprint == CAR.CHEVROLET_BOLT_CC and
+                           self.CP.enableGasInterceptor)
+
+        if use_hybrid_brake and brake_accel < HYBRID_BRAKE_ACCEL_THRESHOLD:
+          # Above threshold: Use friction brakes for faster braking (brake_accel is negative)
+          friction_brake_bus = CanBus.POWERTRAIN  # EUV uses powertrain bus for friction brake
+          can_sends.append(gmcan.create_friction_brake_command(
+              self.packer_ch, friction_brake_bus, self.apply_brake,
+              idx, CC.enabled, near_stop, at_full_stop, self.CP))
+        elif self.CP.enableGasInterceptor:
+          # Below threshold: Use pedal interceptor for normal braking
           can_sends.append(create_gas_interceptor_command(self.packer_pt, interceptor_gas_cmd, idx))
+
         if self.CP.carFingerprint not in CC_ONLY_CAR:
           friction_brake_bus = CanBus.CHASSIS
           # GM Camera exceptions
