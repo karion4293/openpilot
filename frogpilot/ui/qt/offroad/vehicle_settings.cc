@@ -112,6 +112,7 @@ FrogPilotVehiclesPanel::FrogPilotVehiclesPanel(FrogPilotSettingsWindow *parent) 
     if (!makeSelection.isEmpty()) {
       params.put("CarMake", makeSelection.toStdString());
       selectMakeButton->setValue(makeSelection);
+      parent->updateVariables();
     }
   });
   settingsList->addItem(selectMakeButton);
@@ -123,11 +124,15 @@ FrogPilotVehiclesPanel::FrogPilotVehiclesPanel(FrogPilotSettingsWindow *parent) 
       params.put("CarModel", carModels.value(modelSelection).toStdString());
       params.put("CarModelName", modelSelection.toStdString());
       selectModelButton->setValue(modelSelection);
+      parent->updateVariables();
     }
   });
   settingsList->addItem(selectModelButton);
 
   forceFingerprint = new ParamControl("ForceFingerprint", tr("Disable Automatic Fingerprint Detection"), tr("<b>Force the selected fingerprint</b> and prevent it from ever changing."), "");
+  QObject::connect(forceFingerprint, &ToggleControl::toggleFlipped, [this]() {
+    parent->updateVariables();
+  });
   settingsList->addItem(forceFingerprint);
 
   disableOpenpilotLong = new ParamControl("DisableOpenpilotLongitudinal", tr("Disable openpilot Longitudinal Control"), tr("<b>Disable openpilot longitudinal</b> and use the car's stock ACC instead."), "");
