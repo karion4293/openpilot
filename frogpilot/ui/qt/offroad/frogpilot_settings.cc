@@ -250,8 +250,6 @@ void FrogPilotSettingsWindow::updateVariables() {
   FrogPilotUIState &fs = *frogpilotUIState();
   QJsonObject &frogpilot_toggles = fs.frogpilot_toggles;
 
-  params_memory.putBool("FrogPilotTogglesUpdated", true);
-
   std::string carParams = params.get("CarParamsPersistent");
   if (!carParams.empty()) {
     AlignedBuffer aligned_buf;
