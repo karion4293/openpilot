@@ -633,8 +633,8 @@ class Controls:
       else:
         # Use manual parameter values from settings panel
         lat_accel_factor = self.params.get_float("SteerLatAccel")
-        friction = self.params.getFloat("SteerFriction")
-        steer_ratio = self.params.getFloat("SteerRatio")
+        friction = self.params.get_float("SteerFriction")
+        steer_ratio = self.params.get_float("SteerRatio")
         self.LaC.update_live_torque_params(lat_accel_factor, self.CP.lateralTuning.torque.latAccelOffset, friction)
 
       if self.sm.updated['liveDelay'] and hasattr(self.LaC, "update_live_delay"):
