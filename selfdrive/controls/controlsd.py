@@ -632,7 +632,7 @@ class Controls:
         self.LaC.update_live_torque_params(lat_accel_factor, self.CP.lateralTuning.torque.latAccelOffset, friction)
       else:
         # Use manual parameter values from settings panel
-        lat_accel_factor = self.params.getFloat("SteerLatAccel")
+        lat_accel_factor = self.params.get_float("SteerLatAccel")
         friction = self.params.getFloat("SteerFriction")
         steer_ratio = self.params.getFloat("SteerRatio")
         self.LaC.update_live_torque_params(lat_accel_factor, self.CP.lateralTuning.torque.latAccelOffset, friction)
