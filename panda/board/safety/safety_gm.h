@@ -45,7 +45,7 @@ const CanMsg GM_CAM_LONG_TX_MSGS[] = {{0x180, 0, 4}, {0x315, 0, 5}, {0x2CB, 0, 8
 const CanMsg GM_SDGM_TX_MSGS[] = {{0x180, 0, 4}, {0x1E1, 0, 7}, {0xBD, 0, 7}, {0x1F5, 0, 8}, // pt bus
                                   {0x184, 2, 8}};  // camera bus
 
-const CanMsg GM_CC_LONG_TX_MSGS[] = {{0x180, 0, 4}, {0x1E1, 0, 7}, {0xBD, 0, 7}, {0x1F5, 0, 8},  // pt bus
+const CanMsg GM_CC_LONG_TX_MSGS[] = {{0x180, 0, 4}, {0x1E1, 0, 7}, {0x370, 0, 6}, {0xBD, 0, 7}, {0x1F5, 0, 8},  // pt bus
                                      {0x184, 2, 8}, {0x1E1, 2, 7}};  // camera bus
 
 // TODO: do checksum and counter checks. Add correct timestep, 0.1s for now.
@@ -246,7 +246,8 @@ static bool gm_tx_hook(const CANPacket_t *to_send) {
 
     bool violation = false;
     // Allow apply bit in pre-enabled and overriding states
-    violation |= !controls_allowed && apply;
+    // Also allow for pedal long (spoofing ACC status only)
+    violation |= !controls_allowed && apply && !gm_pedal_long;
     violation |= longitudinal_gas_checks(gas_regen, *gm_long_limits);
 
     if (violation) {
@@ -307,10 +308,10 @@ static int gm_fwd_hook(int bus_num, int addr) {
 
     if (bus_num == 2) {
       // block lkas message and acc messages
-      // Block 0x370 only for experimental long without pedal interceptor
+      // Block all ACC msgs (0x315, 0x2CB, 0x370) when gm_cam_long is true
       bool is_lkas_msg = (addr == 0x180);
       bool is_acc_msg = (addr == 0x315) || (addr == 0x2CB);
-      if (gm_cam_long && !enable_gas_interceptor) {
+      if (gm_cam_long) {
         is_acc_msg = is_acc_msg || (addr == 0x370);
       }
       bool block_msg = is_lkas_msg || (is_acc_msg && gm_cam_long);
@@ -341,6 +342,9 @@ static safety_config gm_init(uint16_t param) {
   } else {
   }
 
+  // Must read enable_gas_interceptor FIRST since it's used in the gm_cam_long override below
+  enable_gas_interceptor = GET_FLAG(param, GM_PARAM_PEDAL_INTERCEPTOR);
+
   gm_pedal_long = GET_FLAG(param, GM_PARAM_PEDAL_LONG);
   gm_cc_long = GET_FLAG(param, GM_PARAM_CC_LONG);
   gm_cam_long = GET_FLAG(param, GM_PARAM_HW_CAM_LONG) && !gm_cc_long;
@@ -351,7 +355,6 @@ static safety_config gm_init(uint16_t param) {
   gm_pcm_cruise = ((gm_hw == GM_CAM) && (!gm_cam_long || gm_cc_long) && !gm_force_ascm && !gm_pedal_long) || (gm_hw == GM_SDGM);
   gm_skip_relay_check = GET_FLAG(param, GM_PARAM_NO_CAMERA);
   gm_has_acc = !GET_FLAG(param, GM_PARAM_NO_ACC);
-  enable_gas_interceptor = GET_FLAG(param, GM_PARAM_PEDAL_INTERCEPTOR);
 
   safety_config ret = BUILD_SAFETY_CFG(gm_rx_checks, GM_ASCM_TX_MSGS);
   if (gm_hw == GM_CAM) {

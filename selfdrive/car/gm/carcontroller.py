@@ -440,6 +440,22 @@ class CarController(CarControllerBase):
           send_fcw = hud_alert == VisualAlert.fcw
           can_sends.append(gmcan.create_acc_dashboard_command(self.packer_pt, CanBus.POWERTRAIN, CC.enabled,
                                                               hud_v_cruise * CV.MS_TO_KPH, hud_control, send_fcw))
+        elif self.CP.flags & GMFlags.PEDAL_LONG.value:
+          # Dashboard spoofing for pedal long: show ACC active when OP is engaged
+          # Stock ACC engagement prevented by cancel button spamming (lines 479-485)
+          acc_engaged = CC.enabled
+          send_fcw = hud_alert == VisualAlert.fcw
+
+          # Send all three ASCM messages with synchronized counters (like Bolt EUV)
+          # 0x2CB: Active status with neutral command (no gas/brake intervention)
+          can_sends.append(gmcan.create_gas_regen_command(self.packer_pt, CanBus.POWERTRAIN,
+              self.params.INACTIVE_REGEN, idx, acc_engaged, at_full_stop))
+          # 0x315: Friction brake with no braking (just heartbeat)
+          can_sends.append(gmcan.create_friction_brake_command(self.packer_ch, CanBus.POWERTRAIN,
+              0, idx, acc_engaged, False, at_full_stop, self.CP))
+          # 0x370: Dashboard display
+          can_sends.append(gmcan.create_acc_dashboard_command(self.packer_pt, CanBus.POWERTRAIN,
+              acc_engaged, hud_v_cruise * CV.MS_TO_KPH, hud_control, send_fcw))
       else:
         # to keep accel steady for logs when not sending gas
         accel += self.accel_g
