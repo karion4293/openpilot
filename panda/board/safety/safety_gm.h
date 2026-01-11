@@ -307,10 +307,10 @@ static int gm_fwd_hook(int bus_num, int addr) {
 
     if (bus_num == 2) {
       // block lkas message and acc messages
-      // Block 0x370 only for experimental long without pedal interceptor
+      // Block 0x370 for all cam_long configs (stock camera dash overridden by openpilot)
       bool is_lkas_msg = (addr == 0x180);
       bool is_acc_msg = (addr == 0x315) || (addr == 0x2CB);
-      if (gm_cam_long && !enable_gas_interceptor) {
+      if (gm_cam_long) {
         is_acc_msg = is_acc_msg || (addr == 0x370);
       }
       bool block_msg = is_lkas_msg || (is_acc_msg && gm_cam_long);
@@ -343,7 +343,7 @@ static safety_config gm_init(uint16_t param) {
 
   gm_pedal_long = GET_FLAG(param, GM_PARAM_PEDAL_LONG);
   gm_cc_long = GET_FLAG(param, GM_PARAM_CC_LONG);
-  gm_cam_long = GET_FLAG(param, GM_PARAM_HW_CAM_LONG) && !gm_cc_long;
+  gm_cam_long = (GET_FLAG(param, GM_PARAM_HW_CAM_LONG) || gm_pedal_long) && !gm_cc_long;
   // Block ACC messages when pedal interceptor is active on ACC models
   if (gm_hw == GM_CAM && enable_gas_interceptor) {
     gm_cam_long = true;
