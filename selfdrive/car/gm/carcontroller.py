@@ -419,6 +419,11 @@ class CarController(CarControllerBase):
             send_fcw = hud_alert == VisualAlert.fcw
             can_sends.append(gmcan.create_acc_dashboard_command(self.packer_pt, CanBus.POWERTRAIN, CC.enabled,
                                                                 hud_v_cruise * CV.MS_TO_KPH, hud_control, send_fcw))
+            # Inactive 0x2CB/0x315 heartbeats - ECM requires these to avoid U0104 fault
+            can_sends.append(gmcan.create_gas_regen_command(self.packer_pt, CanBus.POWERTRAIN,
+                                                            self.params.INACTIVE_REGEN, idx, False, False))
+            can_sends.append(gmcan.create_friction_brake_command(self.packer_ch, CanBus.POWERTRAIN,
+                                                                  0, idx, False, False, False, self.CP))
         if self.CP.carFingerprint not in CC_ONLY_CAR:
           friction_brake_bus = CanBus.CHASSIS
           # GM Camera exceptions
