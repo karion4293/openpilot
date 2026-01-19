@@ -241,6 +241,11 @@ class CarInterface(CarInterfaceBase):
       if ret.openpilotLongitudinalControl:
         ret.minEnableSpeed = -1.
       CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
+      # Silverado torque lateral tuning overrides (stored in unused torque fields).
+      ret.lateralTuning.torque.kp = 1.03  # torque_ff_scale_pos
+      ret.lateralTuning.torque.ki = 1.07  # torque_ff_scale_neg
+      ret.lateralTuning.torque.kd = 0.93  # torque_ki_mult
+      ret.lateralTuning.torque.kfDEPRECATED = 0.02  # torque_deadzone_boost_neg (lat accel)
 
     elif candidate in (CAR.CHEVROLET_EQUINOX, CAR.CHEVROLET_EQUINOX_CC):
       CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
